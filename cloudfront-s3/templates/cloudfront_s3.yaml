@@ -125,8 +125,8 @@ Resources:
           Compress: true
           TargetOriginId: fe-s3-origin
           ViewerProtocolPolicy: redirect-to-https
-          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
-          OriginRequestPolicyId: 88a5eaf4-2fd4-4709-b370-b4c650ea3fcf
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6 # https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/using-managed-cache-policies.html#attaching-managed-cache-policies
+          OriginRequestPolicyId: 88a5eaf4-2fd4-4709-b370-b4c650ea3fcf # https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/using-managed-origin-request-policies.html
 #          DefaultTTL: !Ref DefaultTTL
 #            Ref: StaticDefaultTTL
 #          MaxTTL:
