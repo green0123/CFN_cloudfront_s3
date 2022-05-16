@@ -1,0 +1,35 @@
+Version: 3
+
+Blueprints:
+  obpp-cloudfront-s3:
+    Order: 2
+    Region: us-east-1
+    Template: ./templates/cloudfront_s3.yaml
+    StackPolicy: ALLOW_ALL
+    Capabilities: [CAPABILITY_IAM]
+    Package: false
+
+  auto-cert-validate-custom-resource:
+    Order: 1
+    Region: us-east-1
+    Template: ../custom-resources/auto-validate-cert/templates/custom-resource.yaml
+    # StackPolicy: ALLOW_ALL
+    Capabilities: [CAPABILITY_NAMED_IAM]
+    Package: true
+
+Stages:
+  dev:
+    auto-cert-validate-custom-resource1:
+      Extends: auto-cert-validate-custom-resource
+      StackName: cpg-pcl-obpp-dev-auto-validate-cert-custom-resource1
+      Parameters:
+        TargetRoleARN: arn:aws:iam::116305488119:role/auto-provision-cert-iam-role
+
+    cloudfront-s3-dev:
+      Extends: obpp-cloudfront-s3
+      StackName: cpg-pcl-obpp-dev-fe-cloudfront
+      Parameters:
+        ApplicationAssetsBucketName: cpg-pcl-obpp-dev-fe-ui
+        CustomResourceArn: ${dev.auto-cert-validate-custom-resource1.CustomResourceArn}
+        DistributionAlias: dev-ui.aws-purolator.com
+        PriceClass: PriceClass_All

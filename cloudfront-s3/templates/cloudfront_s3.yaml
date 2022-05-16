@@ -1,0 +1,199 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Creates the following resources:
+    - An S3 bucket for the website
+    - A CloudFront for serving the static assets
+Parameters:
+  ApplicationAssetsBucketName:
+    Type: String
+
+  DistributionAlias:
+    Type: String
+
+  CustomResourceArn:
+    Type: String
+
+  PriceClass:
+    Type: String
+
+Resources:
+
+  OriginAccessIdentity:
+    DependsOn: ApplicationBucket
+    Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: !Sub "Static assets in ${ApplicationAssetsBucketName}"
+
+  ApplicationBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref ApplicationAssetsBucketName
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+#############################################################
+## Bucket -  ApplicationBucket SSM parameter
+#############################################################
+  ApplicationBucketSSMParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Description: !Sub "The s3 bucket for ${ApplicationAssetsBucketName}"
+      Name: !Sub "/cloudformation/${ApplicationAssetsBucketName}"
+      Type: String
+      Value: !Ref ApplicationBucket
+
+  ApplicationBucketPolicy:
+    DependsOn: ApplicationBucket
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ApplicationBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - s3:GetObject
+            Resource: !Join
+              - ""
+              - - !GetAtt ApplicationBucket.Arn
+                - "/*"
+            Principal:
+              CanonicalUser: !GetAtt OriginAccessIdentity.S3CanonicalUserId
+          - Action: s3:*
+            Effect: Deny
+            Resource:
+              - !Sub "arn:aws:s3:::${ApplicationAssetsBucketName}"
+              - !Sub "arn:aws:s3:::${ApplicationAssetsBucketName}/*"
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+            Principal: "*"
+
+  DistributionIdentity:
+    Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+    DependsOn: ApplicationBucket
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: CloudFront OAI for Distribution
+
+
+  Distribution:
+    Type: AWS::CloudFront::Distribution
+    DependsOn: ApplicationBucket
+    Properties:
+      DistributionConfig:
+        Comment: !Sub "${ApplicationAssetsBucketName} as origin"
+        DefaultRootObject: index.html
+        CustomErrorResponses:
+        - ErrorCode: 504
+          ErrorCachingMinTTL: 0
+          ResponseCode: 504
+          ResponsePagePath: /index.html
+        - ErrorCode: 503
+          ErrorCachingMinTTL: 0
+          ResponseCode: 503
+          ResponsePagePath: /index.html
+        - ErrorCode: 502
+          ResponseCode: 502
+          ErrorCachingMinTTL: 0
+          ResponsePagePath: /index.html
+        - ErrorCode: 501
+          ResponseCode: 501
+          ErrorCachingMinTTL: 0
+          ResponsePagePath: /index.html
+        - ErrorCode: 500
+          ResponseCode: 500
+          ErrorCachingMinTTL: 0
+          ResponsePagePath: /index.html
+        - ErrorCode: 403
+          ResponseCode: 403
+          ErrorCachingMinTTL: 0
+          ResponsePagePath: /index.html
+        - ErrorCode: 404
+          ResponseCode: 404
+          ErrorCachingMinTTL: 0
+          ResponsePagePath: /index.html
+        DefaultCacheBehavior:
+          Compress: true
+          TargetOriginId: fe-s3-origin
+          ViewerProtocolPolicy: redirect-to-https
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+          OriginRequestPolicyId: 88a5eaf4-2fd4-4709-b370-b4c650ea3fcf
+#          DefaultTTL: !Ref DefaultTTL
+#            Ref: StaticDefaultTTL
+#          MaxTTL:
+#            Ref: StaticMaxTTL
+#          MinTTL: 0
+          AllowedMethods:
+          - HEAD
+          - GET
+          - OPTIONS
+          CachedMethods:
+          - HEAD
+          - GET
+          - OPTIONS
+          ForwardedValues:
+            QueryString: false
+            Cookies:
+              Forward: none
+        Enabled: true
+        HttpVersion: http2
+        Origins:
+          - Id: fe-s3-origin
+            DomainName: !GetAtt ApplicationBucket.DomainName
+            S3OriginConfig:
+              OriginAccessIdentity: !Join
+                - /
+                - - origin-access-identity
+                  - cloudfront
+                  - !Ref OriginAccessIdentity
+        PriceClass:
+          Ref: PriceClass
+        ViewerCertificate:
+          AcmCertificateArn: !GetAtt CloudFrontCertificate.CertificateArn
+          SslSupportMethod: sni-only
+          MinimumProtocolVersion: TLSv1.2_2019
+        Aliases:
+          - Ref: DistributionAlias
+
+
+  CloudFrontCertificate:
+    Type: Custom::ALBCertificate
+    DependsOn: ApplicationBucket
+    Properties:
+      ServiceToken:
+        Ref: CustomResourceArn
+      Route53HostedZoneName: aws-purolator.com
+      RecordValue: ''
+      RecordType: CNAME
+      DomainName:
+        Ref: DistributionAlias
+      Region: us-east-1
+      TargetRoleARN: arn:aws:iam::116305488119:role/auto-provision-cert-iam-role
+      TTL: 300
+      AddCNAME: false
+      CreateCert: true
+
+
+  CloudFrontDNSRecordSet:
+    Type: Custom::ALBCertificate
+    DependsOn: ApplicationBucket
+    Properties:
+      ServiceToken: !Ref CustomResourceArn
+      Route53HostedZoneName: "aws-purolator.com"
+      RecordValue: !GetAtt Distribution.DomainName
+      RecordType: CNAME
+      DomainName: !Ref DistributionAlias
+      Region: "us-east-1"
+      TargetRoleARN: "arn:aws:iam::116305488119:role/auto-provision-cert-iam-role"
+      TTL: 300
+      AddCNAME: true
+      CreateCert: false
